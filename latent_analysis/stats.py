@@ -278,6 +278,10 @@ class VarDecompose():
             return self.tss, self.fss, self.all_emp_G
         else:
             return self.tss, self.fss
+
+    def return_rdms(self):
+        """ Returns the model Gs"""
+        return self.G_m
     
     def plot(self, **kwargs):
         """ Plot the results
