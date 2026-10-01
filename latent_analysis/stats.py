@@ -153,8 +153,10 @@ class VarDecompose():
             If True, the interaction terms will be orthogonalized
         verbose (bool)
             If True, the covariance matrices will be plotted
+        ortho_indicators (bool)
+            If True, the main rdms will be orthogonalized
     """
-    def __init__(self, Indicators, ortho_ineraction = 1,  verbose=1):
+    def __init__(self, Indicators, ortho_ineraction=1,  verbose=1, ortho_indicators=0):
         # Define model covariance G_m
         self.G_m = self.G_maker()
         for key in Indicators.keys():
@@ -168,17 +170,25 @@ class VarDecompose():
             K = Indicators[key].shape[0]
             H = np.eye(K) - np.ones((K, K)) / K
             g = H@D@D.T@H.T
-            self.G_m.add(g/np.trace(g), key)
+            g /= np.trace(g)
+
+            if ortho_indicators: # Making Gs orthogonal - default is False
+                for i, g_made in enumerate(self.G_m.G):
+                    g = g - g_made @ np.linalg.pinv(g_made) @ g
+
+            self.G_m.add(g, key)
 
         if verbose:
             self.G_m.plot()
 
-    def fit(self, Y):
+    def fit(self, Y, return_Gemp=False):
         """ Fit the model to the data
 
         Args:
             Y (np.array)
                 The hidden data (num_conditions, num_timepoints, num_hidden_variables)
+            return_Gemp (bool)
+                If True, the empirical G matrices will be returned, default is False
                 
         Returns:
             tss (np.array)
@@ -191,6 +201,7 @@ class VarDecompose():
         for i, g in enumerate(self.G_m.G):
             X[:, i] = g.flatten()
 
+        self.all_emp_G = []
         self.beta = np.zeros((self.G_m.num_models, Y.shape[1])) 
         self.tss = np.zeros((Y.shape[1], 1))
         self.fss = np.zeros((self.G_m.num_models, Y.shape[1]))
@@ -201,12 +212,16 @@ class VarDecompose():
             K = y.shape[0]
             H = np.eye(K) - np.ones((K, K)) / K
             G_emp = H@y@y.T@H.T
+            self.all_emp_G.append(G_emp)
             # Do regression
             self.beta[:, t] = nnls(X, G_emp.reshape(-1,))[0]
             self.tss[t] = np.trace(G_emp)  # Total variance of Hiddens
             for f, gm in enumerate(self.G_m.G):
                 self.fss[f, t] = np.trace(gm)*self.beta[f, t]
-        return self.tss, self.fss
+        if return_Gemp:
+            return self.tss, self.fss, self.all_emp_G
+        else:
+            return self.tss, self.fss
     
     def plot(self, **kwargs):
         """ Plot the results
