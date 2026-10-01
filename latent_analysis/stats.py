@@ -386,7 +386,7 @@ class TimePointClassifier():
         self.num_sampling_rep = num_sampling_rep
         self.num_core = num_core
   
-    def fit(self, X, y):
+    def fit(self, X, y, return_std=False):
         """ Run the classification models on every timepoint
 
         Args:
@@ -394,17 +394,23 @@ class TimePointClassifier():
                 The continuous data (num_conditions, num_timepoints, num_variables)
             y (np.array)
                 The associated class value (num_conditions, )
+            return_std (bool)
+                If True, the std of accuracy will be returned, default is False
         Returns:
             acc (np.array)
                 Accuracy of the model
             acc_chance (np.array)
                 Chance level accuracy
+            acc_std (np.array)
+                Std of accuracy of the model over k fold
+            acc_chance_std (np.array)
+                Std of chance level accuracy of the model over k fold
         """
         self.X = X
         self.y = y
         
         if self.num_core ==1:
-            acc = np.zeros((X.shape[1],2))
+            acc = np.zeros((X.shape[1],4)) # avg, chance, std, chance_std
             for t in tqdm(range(X.shape[1])):
                 acc[t, :] = self.par_function_classification(t)
         else:
@@ -412,10 +418,16 @@ class TimePointClassifier():
             with multiprocess.Pool(processes=self.num_core) as pool:
                 acc  = pool.map(self.par_function_classification, range(X.shape[1]))
             acc = np.array(acc) 
-            
+
+        self.acc_chance_std = acc[:, 3]
+        self.acc_std = acc[:, 2]    
         self.acc_chance = acc[:, 1]
         self.acc = acc[:, 0]
-        return self.acc, self.acc_chance
+
+        if return_std:
+            return self.acc, self.acc_chance, self.acc_std, self.acc_chance_std
+        else:
+            return self.acc, self.acc_chance
     
     def plot(self, winseize = 40):
         plt.plot(savgol_filter(self.acc, window_length=winseize, polyorder=3), color='k')
@@ -432,9 +444,13 @@ class TimePointClassifier():
         acc_temp = []
         acc_rand_temp = []
         for _ in range(self.num_sampling_rep):
-            acc_temp.append(self.classifier(X,y, randomize_y = False))
+            acc_temp.append(self.classifier(X,y, randomize_y = False)) # pairs of maen and std of the accuracy over k fold
             acc_rand_temp.append(self.classifier(X,y, randomize_y = True))
-        return np.mean(acc_temp), np.mean(acc_rand_temp)
+
+        acc_temp = np.array(acc_temp)
+        acc_rand_temp = np.array(acc_rand_temp)
+
+        return np.mean(acc_temp[:, 0]), np.mean(acc_rand_temp[:, 0]), np.mean(acc_temp[:, 1]), np.mean(acc_rand_temp[:, 1])
     
     def classifier(self, X,y, randomize_y = False):
         if randomize_y:
@@ -447,8 +463,10 @@ class TimePointClassifier():
             y_train, y_test = y[train_index], y[test_index]
             clf = RidgeClassifierCV(alphas=(0.1, 10.0, 100.0,1000.0)).fit(X_train, y_train)
             score.append(clf.score(X_test, y_test))
-        score = np.mean(score)
-        return score
+            
+        avg_score = np.mean(score)
+        std_score = np.std(score)
+        return np.array([avg_score, std_score])
     
 # Runs a family of models on every timepoint
 class Model():
